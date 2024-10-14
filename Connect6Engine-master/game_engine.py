@@ -82,7 +82,7 @@ class GameEngine:
                 make_move(self.m_board, self.m_best_move, Defines.WHITE)
                 self.m_chess_type = Defines.WHITE
             elif msg == "next":
-                # Change the color of the stone of the next move
+                # Change the color of the stone of the next move using XOR
                 self.m_chess_type = self.m_chess_type ^ 3
 
                 # Check if the opponent has won
