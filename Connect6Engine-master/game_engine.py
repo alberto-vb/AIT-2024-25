@@ -1,4 +1,5 @@
 import sys
+from itertools import combinations
 
 from search_engine import SearchEngine
 from tools import (
@@ -191,21 +192,21 @@ class GameEngine:
     def propose_naive_moves(self, limit=10, max_radius=2):
         """
         Proposes a list of possible next moves by checking empty spaces around the latest two moves.
-        The search is limited to a radius around the previous moves to avoid scanning the entire board.
-        Limits the number of moves returned to avoid combinatorial explosion.
+        Each move consists of two stone placements. The search starts from radius 1 and increases
+        up to max_radius to prioritize closer moves first.
 
         Parameters:
-        - limit: Maximum number of moves to return.
-        - radius: How far around the previous moves to search for potential moves.
+        - limit: Maximum number of move pairs to return.
+        - max_radius: The maximum radius to search around the previous moves.
         """
         # Get the two latest moves
         last_move_1 = self.m_best_move.positions[-1]
         last_move_2 = self.m_best_move.positions[-2]
-        print(move2msg(self.m_best_move))
         last_positions = [(last_move_1.x, last_move_1.y), (last_move_2.x, last_move_2.y)]
 
-        possible_moves = set()  # Use a set to avoid duplicates
-        for radius in range(1, max_radius):
+        # Collect all potential single moves in a set to avoid duplicates
+        potential_moves = set()
+        for radius in range(1, max_radius + 1):  # Increment the radius from 1 to max_radius
             for last_x, last_y in last_positions:
                 for dx in range(-radius, radius + 1):
                     for dy in range(-radius, radius + 1):
@@ -217,20 +218,24 @@ class GameEngine:
                         y = last_y + dy
 
                         # Check if the position is within bounds and is an empty space
-                        if (
-                                0 <= x < Defines.GRID_NUM and
-                                0 <= y < Defines.GRID_NUM and
-                                self.m_board[x][y] == Defines.NOSTONE
-                        ):
-                            stone_position = StonePosition(x, y)
-                            possible_moves.add(
-                                StoneMove(positions=[stone_position, stone_position])  # Add the move twice
-                            )
+                        if 0 <= x < Defines.GRID_NUM and 0 <= y < Defines.GRID_NUM and self.m_board[x][
+                            y] == Defines.NOSTONE:
+                            potential_moves.add((x, y))  # Add the empty position to the set
 
-                        if len(possible_moves) >= limit:
-                            return list(possible_moves)  # Return early if the limit is reached
+                        if len(potential_moves) >= limit * 2:  # Collect enough positions for move pairs
+                            break
 
-        return list(possible_moves)
+        # Generate all combinations of two moves from the potential moves
+        move_pairs = []
+        for pos1, pos2 in combinations(potential_moves, 2):
+            stone_position1 = StonePosition(pos1[0], pos1[1])
+            stone_position2 = StonePosition(pos2[0], pos2[1])
+            move = StoneMove(positions=[stone_position1, stone_position2])
+            move_pairs.append(move)
+            if len(move_pairs) >= limit:  # Stop if we have enough move pairs
+                break
+
+        return move_pairs
 
     def naive_static_evaluation(self):
         """
