@@ -87,7 +87,8 @@ class GameEngine:
                 # Change the color of the stone of the next move using XOR
                 self.m_chess_type = self.m_chess_type ^ 3
 
-                result, move = self.mini_max(2, True)
+                # result, move = self.mini_max(2, True)
+                result, move = self.alpha_beta(2, Defines.MININT, Defines.MAXINT, True)
                 print(move2msg(move))
                 self.m_best_move = move
                 make_move(self.m_board, move, self.m_chess_type)
@@ -155,7 +156,15 @@ class GameEngine:
         # else we are looking for the worst move
         if maxPlayer:
             q = Defines.MININT
-            for move in self.propose_naive_moves():
+            total_stones = sum(
+                1 for x in range(Defines.GRID_NUM) for y in range(Defines.GRID_NUM)
+                if self.m_board[x][y] != Defines.NOSTONE
+            )
+            if total_stones >= 4:
+                moves = self.propose_smart_moves()
+            else:
+                moves = self.propose_naive_moves()
+            for move in moves:
                 move_str = move2msg(move)
                 print(move_str)
                 aux = self.m_best_move
@@ -170,9 +179,19 @@ class GameEngine:
                     result_move = move
                     print("Best move: ", move2msg(move))
 
+            return result, result_move
+
         else:
             q = Defines.MAXINT
-            for move in self.propose_naive_moves():
+            total_stones = sum(
+                1 for x in range(Defines.GRID_NUM) for y in range(Defines.GRID_NUM)
+                if self.m_board[x][y] != Defines.NOSTONE
+            )
+            if total_stones >= 4:
+                moves = self.propose_smart_moves()
+            else:
+                moves = self.propose_naive_moves()
+            for move in moves:
                 move_str = move2msg(move)
                 print(move_str)
                 aux = self.m_best_move
@@ -187,7 +206,69 @@ class GameEngine:
                     result_move = move
                     print("Best move: ", move2msg(move))
 
-        return result, result_move
+            return result, result_move
+
+    def alpha_beta(self, depth, alpha, beta, maxPlayer):
+        if depth == 0 or is_win_by_premove(self.m_board, self.m_best_move):
+            return self.evaluate_board(), None
+
+        if maxPlayer:
+            max_eval = Defines.MININT
+            best_move = None
+            total_stones = sum(
+                1 for x in range(Defines.GRID_NUM) for y in range(Defines.GRID_NUM)
+                if self.m_board[x][y] == Defines.BLACK or self.m_board[x][y] == Defines.WHITE
+            )
+            if total_stones >= 4:
+                moves = self.propose_smart_moves_2()
+            else:
+                moves = self.propose_naive_moves()
+            for move in moves:
+                aux = self.m_best_move
+                self.m_best_move = move
+                make_move(self.m_board, move, Defines.BLACK)
+                eval, _ = self.alpha_beta(depth - 1, alpha, beta, False)
+                unmake_move(self.m_board, move)
+                self.m_best_move = aux
+
+                if eval > max_eval:
+                    max_eval = eval
+                    best_move = move
+                alpha = max(alpha, eval)
+
+                if beta <= alpha:
+                    break  # Beta cut-off
+
+            return max_eval, best_move
+        else:
+            min_eval = Defines.MAXINT
+            best_move = None
+            total_stones = sum(
+                1 for x in range(Defines.GRID_NUM) for y in range(Defines.GRID_NUM)
+                if self.m_board[x][y] == Defines.BLACK or self.m_board[x][y] == Defines.WHITE
+            )
+            if total_stones >= 4:
+                moves = self.propose_smart_moves_2()
+            else:
+                moves = self.propose_naive_moves()
+            for move in moves:
+                aux = self.m_best_move
+                self.m_best_move = move
+                make_move(self.m_board, move, Defines.WHITE)
+                eval, _ = self.alpha_beta(depth - 1, alpha, beta, True)
+                unmake_move(self.m_board, move)
+                self.m_best_move = aux
+
+                if eval < min_eval:
+                    min_eval = eval
+                    best_move = move
+
+                beta = min(beta, eval)
+
+                if beta <= alpha:
+                    break
+
+            return min_eval, best_move
 
     def propose_naive_moves(self, limit=10, max_radius=2):
         """
@@ -237,6 +318,143 @@ class GameEngine:
 
         return move_pairs
 
+    def propose_smart_moves(self, limit=10, max_radius=2):
+        """
+        Proposes a list of smart next moves, focusing on attack and defense threats.
+        Generates pairs of moves for the Connect6 two-stone placement rule.
+
+        Parameters:
+        - limit: Maximum number of move pairs to return.
+        - max_radius: The maximum radius to search around 'alive' stones.
+        """
+        threat_moves = []
+        defensive_moves = []
+
+        # Iterate over the board to detect attack and defense threats
+        for x in range(Defines.GRID_NUM):
+            for y in range(Defines.GRID_NUM):
+                if self.m_board[x][y] == Defines.NOSTONE:
+                    # Analyze potential attack and defense benefits of placing stones here
+                    score = self.analyze_threats(x, y)
+                    if score > 0:
+                        threat_moves.append((score, StonePosition(x, y)))
+                    elif score < 0:
+                        defensive_moves.append((score, StonePosition(x, y)))
+
+        # Sort moves by their scores
+        threat_moves.sort(reverse=True, key=lambda x: x[0])  # High scores first
+        defensive_moves.sort(key=lambda x: x[0])  # Low scores first
+
+        # Combine attack and defense moves into pairs
+        combined_moves = []
+
+        # Generate pairs of moves from the top-ranked threat and defensive moves
+        for i in range(min(limit // 2, len(threat_moves))):
+            for j in range(min(limit // 2, len(defensive_moves))):
+                pos1 = threat_moves[i][1]
+                pos2 = defensive_moves[j][1]
+                if (pos1.x, pos1.y) != (pos2.x, pos2.y):  # Ensure the two positions are not the same
+                    combined_moves.append(StoneMove(positions=[pos1, pos2]))
+                    if len(combined_moves) >= limit:
+                        return combined_moves  # Return early if limit is reached
+
+        return combined_moves[:limit]  # Return the combined moves, limited to the requested number
+
+    def propose_smart_moves_2(self, limit=15, max_radius=2):
+        # Collect all potential single moves with their scores
+        scored_moves = []
+
+        # Iterate over the board to detect attack and defense opportunities
+        for x in range(Defines.GRID_NUM):
+            for y in range(Defines.GRID_NUM):
+                if self.m_board[x][y] == Defines.NOSTONE:
+                    # Analyze the impact of placing a stone at (x, y)
+                    score = self.analyze_threats(x, y)
+                    scored_moves.append((score, StonePosition(x, y)))
+
+        # Sort moves by their scores (high scores first for threats, low scores for defense)
+        scored_moves.sort(reverse=True, key=lambda x: x[0])
+
+        # Generate pairs of moves from the top-ranked positions
+        combined_moves = []
+        for i in range(len(scored_moves)):
+            for j in range(i + 1, len(scored_moves)):
+                pos1 = scored_moves[i][1]
+                pos2 = scored_moves[j][1]
+                if (pos1.x, pos1.y) != (pos2.x, pos2.y):  # Ensure different positions
+                    combined_moves.append(StoneMove(positions=[pos1, pos2]))
+                    if len(combined_moves) >= limit:
+                        return combined_moves  # Return early if the limit is reached
+
+        return combined_moves[:limit]  # Return the best move pairs up to the limit
+
+    def analyze_threats(self, x, y):
+        """
+        Analyzes the potential threats and opportunities of placing a stone at (x, y).
+
+        Returns:
+        - A positive score if the move is good for the current player (offensive value).
+        - A negative score if the move is necessary to block the opponent (defensive value).
+        """
+        score = 0
+        directions = [(1, 0), (0, 1), (1, 1), (1, -1)]
+
+        for direction in directions:
+            # Evaluate both offensive and defensive potential
+            score += self.evaluate_line_threat2(x, y, direction, player=1)  # Offensive
+            score -= self.evaluate_line_threat2(x, y, direction, player=2)  # Defensive (block opponent)
+
+        return score
+
+    def evaluate_line_threat(self, x, y, direction, player):
+        """
+        Evaluates the threat or opportunity of placing a stone at (x, y) in a given direction.
+
+        Parameters:
+        - direction: Tuple indicating the direction to check (e.g., (1, 0) for horizontal).
+        - player: The player for whom the threat is evaluated.
+
+        Returns:
+        - A score representing the strength of the move in that direction.
+        """
+        dx, dy = direction
+        count = 0
+        open_ends = 0
+
+        # Check forward in the given direction
+        nx, ny = x + dx, y + dy
+        while 0 <= nx < Defines.GRID_NUM and 0 <= ny < Defines.GRID_NUM and self.m_board[nx][ny] == player:
+            count += 1
+            nx += dx
+            ny += dy
+
+        # Check if the end is open (empty space)
+        if 0 <= nx < Defines.GRID_NUM and 0 <= ny < Defines.GRID_NUM and self.m_board[nx][ny] == Defines.NOSTONE:
+            open_ends += 1
+
+        # Check backward in the opposite direction
+        nx, ny = x - dx, y - dy
+        while 0 <= nx < Defines.GRID_NUM and 0 <= ny < Defines.GRID_NUM and self.m_board[nx][ny] == player:
+            count += 1
+            nx -= dx
+            ny -= dy
+
+        # Check if the end is open (empty space)
+        if 0 <= nx < Defines.GRID_NUM and 0 <= ny < Defines.GRID_NUM and self.m_board[nx][ny] == Defines.NOSTONE:
+            open_ends += 1
+
+        # Scoring based on the length of the line and open ends
+        if count >= 5 and open_ends > 0:
+            return 1000  # Winning threat
+        elif count == 4 and open_ends > 0:
+            return 100  # Very strong
+        elif count == 3 and open_ends > 0:
+            return 50  # Strong
+        elif count == 2 and open_ends > 0:
+            return 10  # Weak
+        else:
+            return 0  # No significant threat
+
     def naive_static_evaluation(self):
         """
         Evaluates the current state of the game.
@@ -281,25 +499,32 @@ class GameEngine:
         - player: The player (1 or 2) whose stones we are checking.
 
         Returns:
-        - 1 if the stone can potentially form part of a live line, 0 otherwise.
+        - A score based on the number of consecutive stones found in each direction.
+          The score increases as the number of consecutive stones increases.
         """
         directions = [(0, 1), (1, 0), (1, 1), (1, -1)]  # Horizontal, Vertical, Diagonal1, Diagonal2
+        n = Defines.GRID_NUM
         opponent = 2 if player == 1 else 1
+        score = 0
+
+        # Define score weights for different numbers of consecutive stones
+        score_weights = {2: 5, 3: 10, 4: 20, 5: 50}
 
         for direction in directions:
             count = 1  # Start with the current stone
-            blocked = False
 
-            # Check in the positive direction
+            # Count consecutive stones in the positive direction
             count += self.count_consecutive_stones(x, y, direction[0], direction[1], player, opponent)
-            # Check in the negative direction
+            # Count consecutive stones in the negative direction
             count += self.count_consecutive_stones(x, y, -direction[0], -direction[1], player, opponent)
 
-            # Check if this line could be extended to 6 stones without being blocked
-            if count >= 6:
-                return 1  # Potential line found
+            # If we have 2 or more stones in a row, assign a score based on the count
+            if 2 <= count <= 5:
+                score += score_weights[count]  # Use the score weights for different counts
+            elif count >= 6:
+                score += 100  # A very high score if a line of 6 is completed
 
-        return 0  # No potential line found
+        return score
 
     def count_consecutive_stones(self, x, y, dx, dy, player, opponent):
         """
@@ -340,6 +565,107 @@ class GameEngine:
             if Defines.NOSTONE in row:
                 return False
         return True
+
+    def evaluate_board(self):
+        """
+        Evaluates the board state, considering both offensive and defensive factors.
+        """
+        score = 0
+
+        for x in range(Defines.GRID_NUM):
+            for y in range(Defines.GRID_NUM):
+                if self.m_board[x][y] == 1:  # Player 1's stone
+                    score += self.evaluate_position(x, y, 1)
+                elif self.m_board[x][y] == 2:  # Player 2's stone
+                    score -= self.evaluate_position(x, y, 2)
+
+        return score
+
+    def evaluate_position(self, x, y, player):
+        """
+        Evaluates a position for the given player, assigning higher scores for longer sequences.
+        """
+        score = 0
+        directions = [(1, 0), (0, 1), (1, 1), (1, -1)]
+
+        for direction in directions:
+            consecutive_stones = self.count_consecutive_stones(x, y, direction, player)
+            if consecutive_stones >= 6:
+                score += 1000  # Winning line
+            elif consecutive_stones == 5:
+                score += 100  # Very strong
+            elif consecutive_stones == 4:
+                score += 50  # Strong
+            elif consecutive_stones == 3:
+                score += 10  # Decent
+            elif consecutive_stones == 2:
+                score += 3  # Weak
+
+        return score
+
+    def evaluate_line_threat2(self, x, y, direction, player):
+        """
+        Evaluates the threat or opportunity of placing a stone at (x, y) in a given direction.
+
+        Parameters:
+        - direction: Tuple indicating the direction to check (e.g., (1, 0) for horizontal).
+        - player: The player for whom the threat or opportunity is evaluated.
+
+        Returns:
+        - A score representing the strength of the move in that direction.
+        """
+        dx, dy = direction
+        count = 0
+        open_ends = 0
+
+        # Check forward in the given direction
+        nx, ny = x + dx, y + dy
+        while 0 <= nx < Defines.GRID_NUM and 0 <= ny < Defines.GRID_NUM and self.m_board[nx][ny] == player:
+            count += 1
+            nx += dx
+            ny += dy
+
+        # Check if the end is open (empty space)
+        if 0 <= nx < Defines.GRID_NUM and 0 <= ny < Defines.GRID_NUM and self.m_board[nx][ny] == Defines.NOSTONE:
+            open_ends += 1
+
+        # Check backward in the opposite direction
+        nx, ny = x - dx, y - dy
+        while 0 <= nx < Defines.GRID_NUM and 0 <= ny < Defines.GRID_NUM and self.m_board[nx][ny] == player:
+            count += 1
+            nx -= dx
+            ny -= dy
+
+        # Check if the end is open (empty space)
+        if 0 <= nx < Defines.GRID_NUM and 0 <= ny < Defines.GRID_NUM and self.m_board[nx][ny] == Defines.NOSTONE:
+            open_ends += 1
+
+        # Scoring based on offensive opportunities and defensive needs
+        if count >= 5 and open_ends > 0:
+            return 1000  # Winning opportunity for offense
+        elif count == 4 and open_ends > 0:
+            if player == 1:  # Offensive score
+                return 100  # Strong offensive move
+            else:  # Defensive score
+                return 200  # Even stronger defense to block the opponent
+        elif count == 3 and open_ends > 0:
+            return 50  # Moderate offensive or defensive value
+        elif count == 2 and open_ends > 0:
+            return 10  # Weak offensive or defensive value
+        else:
+            return 0  # No significant impact
+
+    def count_consecutive_stones(self, x, y, direction, player):
+        """
+        Counts consecutive stones in a given direction for the player.
+        """
+        count = 0
+        dx, dy = direction
+        while 0 <= x < Defines.GRID_NUM and 0 <= y < Defines.GRID_NUM and self.m_board[x][y] == player:
+            count += 1
+            x += dx
+            y += dy
+        return count
 
 
 def flush_output():
