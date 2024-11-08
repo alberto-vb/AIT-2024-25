@@ -29,6 +29,10 @@ class GameEngine:
         self.init_game()
         self.m_search_engine = SearchEngine()
         self.m_best_move = StoneMove()
+        self.stones_placed = []
+        self.num_of_total_stones = 0
+        self.expanded_nodes = 0
+        self.pruned_nodes = 0
 
     def init_game(self):
         init_board(self.m_board)
@@ -79,19 +83,45 @@ class GameEngine:
                 self.m_best_move = msg2move(msg[6:])
                 make_move(self.m_board, self.m_best_move, Defines.BLACK)
                 self.m_chess_type = Defines.BLACK
+                for stone in self.m_best_move.positions:
+                    self.num_of_total_stones += 1
+                    self.stones_placed.append((stone.x, stone.y, self.m_chess_type))
             elif msg.startswith("white"):
                 self.m_best_move = msg2move(msg[6:])
                 make_move(self.m_board, self.m_best_move, Defines.WHITE)
                 self.m_chess_type = Defines.WHITE
+                for stone in self.m_best_move.positions:
+                    self.num_of_total_stones += 1
+                    self.stones_placed.append((stone.x, stone.y, self.m_chess_type))
             elif msg == "next":
                 # Change the color of the stone of the next move using XOR
                 self.m_chess_type = self.m_chess_type ^ 3
+                # Start the timer
+                start_time = time.time()
 
+                # Run the MiniMax search
                 # result, move = self.mini_max(2, True)
-                result, move = self.alpha_beta(2, Defines.MININT, Defines.MAXINT, True)
-                print(move2msg(move))
+
+                # Run the Alpha-Beta search
+                _, move = self.alpha_beta(4, Defines.MININT, Defines.MAXINT, True)
+
+                # End the timer
+                end_time = time.time()
+
+                # Calculate decision time
+                decision_time = end_time - start_time
+
+                # Log decision time and explored/pruned nodes
+                print(f"Decision Time: {decision_time:.4f} seconds")
+                print(f"Explored nodes: {self.expanded_nodes}, Pruned nodes: {self.pruned_nodes}")
+
                 self.m_best_move = move
                 make_move(self.m_board, move, self.m_chess_type)
+                for stone in self.m_best_move.positions:
+                    self.num_of_total_stones += 1
+                    self.stones_placed.append((stone.x, stone.y, self.m_chess_type))
+                msg = f"move {move2msg(self.m_best_move)}"
+                print(msg)
 
             elif msg.startswith("new"):
                 self.init_game()
@@ -99,6 +129,9 @@ class GameEngine:
                     self.m_best_move = msg2move("JJ")
                     make_move(self.m_board, self.m_best_move, Defines.BLACK)
                     self.m_chess_type = Defines.BLACK
+                    for stone in self.m_best_move.positions:
+                        self.num_of_total_stones += 1
+                        self.stones_placed.append((stone.x, stone.y, self.m_chess_type))
                     msg = "move JJ"
                     print(msg)
                     # flush_output()
@@ -215,15 +248,18 @@ class GameEngine:
         if maxPlayer:
             max_eval = Defines.MININT
             best_move = None
-            total_stones = sum(
-                1 for x in range(Defines.GRID_NUM) for y in range(Defines.GRID_NUM)
-                if self.m_board[x][y] == Defines.BLACK or self.m_board[x][y] == Defines.WHITE
-            )
-            if total_stones >= 4:
-                moves = self.propose_smart_moves_2()
-            else:
-                moves = self.propose_naive_moves()
+            if self.num_of_total_stones == 0:
+                stone = StonePosition(10, 10)
+                move = StoneMove(positions=[stone, stone])
+                return None, move
+            if self.num_of_total_stones <= 3:
+                stone1 = StonePosition(9, 10)
+                stone2 = StonePosition(10, 11)
+                move = StoneMove(positions=[stone1, stone2])
+                return None, move
+            moves = self.propose_smart_moves_2()
             for move in moves:
+                self.expanded_nodes += 1
                 aux = self.m_best_move
                 self.m_best_move = move
                 make_move(self.m_board, move, Defines.BLACK)
@@ -237,21 +273,25 @@ class GameEngine:
                 alpha = max(alpha, eval)
 
                 if beta <= alpha:
+                    self.pruned_nodes += 1
                     break  # Beta cut-off
 
             return max_eval, best_move
         else:
             min_eval = Defines.MAXINT
             best_move = None
-            total_stones = sum(
-                1 for x in range(Defines.GRID_NUM) for y in range(Defines.GRID_NUM)
-                if self.m_board[x][y] == Defines.BLACK or self.m_board[x][y] == Defines.WHITE
-            )
-            if total_stones >= 4:
-                moves = self.propose_smart_moves_2()
-            else:
-                moves = self.propose_naive_moves()
+            if self.num_of_total_stones == 0:
+                stone = StonePosition(10, 10)
+                move = StoneMove(positions=[stone, stone])
+                return None, move
+            if self.num_of_total_stones <= 3:
+                stone1 = StonePosition(9, 10)
+                stone2 = StonePosition(10, 11)
+                move = StoneMove(positions=[stone1, stone2])
+                return None, move
+            moves = self.propose_smart_moves_2()
             for move in moves:
+                self.expanded_nodes += 1
                 aux = self.m_best_move
                 self.m_best_move = move
                 make_move(self.m_board, move, Defines.WHITE)
@@ -266,6 +306,7 @@ class GameEngine:
                 beta = min(beta, eval)
 
                 if beta <= alpha:
+                    self.pruned_nodes += 1
                     break
 
             return min_eval, best_move
@@ -361,19 +402,43 @@ class GameEngine:
         return combined_moves[:limit]  # Return the combined moves, limited to the requested number
 
     def propose_smart_moves_2(self, limit=15, max_radius=2):
-        # Collect all potential single moves with their scores
+        """
+        Proposes a list of smart next moves based on existing stones, focusing on attack and defense
+        around the most recently placed stones and living stones.
+        Generates pairs of moves for Connect6.
+
+        Parameters:
+        - limit: Maximum number of move pairs to return.
+        - max_radius: The maximum radius to search around critical stones.
+        """
         scored_moves = []
 
-        # Iterate over the board to detect attack and defense opportunities
-        for x in range(Defines.GRID_NUM):
-            for y in range(Defines.GRID_NUM):
-                if self.m_board[x][y] == Defines.NOSTONE:
-                    # Analyze the impact of placing a stone at (x, y)
-                    score = self.analyze_threats(x, y)
-                    scored_moves.append((score, StonePosition(x, y)))
+        # Start with the last placed stones as focal points
+        last_moves = self.m_best_move.positions[-2:]  # The two most recent stones placed
+        critical_stones = [(move.x, move.y) for move in last_moves]
 
-        # Sort moves by their scores (high scores first for threats, low scores for defense)
-        scored_moves.sort(reverse=True, key=lambda x: x[0])
+        # Add any other "living stones" that could potentially form a winning line
+        # (This assumes we have a list of living stones or stones that can form lines)
+        for stone in self.stones_placed:
+            x, y, player = stone
+            if self.is_living_stone(x, y, player):  # Method to check if a stone is "alive"
+                critical_stones.append((x, y))
+
+        # Analyze moves around each critical stone
+        for cx, cy in critical_stones:
+            for dx in range(-max_radius, max_radius + 1):
+                for dy in range(-max_radius, max_radius + 1):
+                    if dx == 0 and dy == 0:
+                        continue  # Skip the stone's own position
+
+                    x, y = cx + dx, cy + dy
+                    if 0 <= x < Defines.GRID_NUM and 0 <= y < Defines.GRID_NUM and self.m_board[x][
+                        y] == Defines.NOSTONE:
+                        score = self.analyze_threats(x, y)  # Evaluate the impact of placing a stone here
+                        scored_moves.append((score, StonePosition(x, y)))
+
+        # Sort moves by their scores (highest scores first for offensive and defensive threats)
+        scored_moves.sort(reverse=True, key=lambda item: item[0])
 
         # Generate pairs of moves from the top-ranked positions
         combined_moves = []
@@ -387,6 +452,66 @@ class GameEngine:
                         return combined_moves  # Return early if the limit is reached
 
         return combined_moves[:limit]  # Return the best move pairs up to the limit
+
+    def is_living_stone(self, x, y, player):
+        """
+        Determines if a stone at (x, y) for the given player is "alive," meaning it has
+        potential to form a line of 6 with open ends.
+
+        Returns:
+        - True if the stone is part of an open-ended sequence, False otherwise.
+        """
+        directions = [(1, 0), (0, 1), (1, 1), (1, -1)]
+        for direction in directions:
+            consecutive_count, open_ends = self.count_consecutive_stones_with_open_ends(x, y, direction, player)
+            if consecutive_count >= 2 and open_ends > 0:
+                return True  # The stone is "alive" as it has open-ended potential
+        return False
+
+    def count_consecutive_stones_with_open_ends(self, x, y, direction, player):
+        """
+        Counts consecutive stones in a given direction and checks for open ends.
+
+        Parameters:
+        - x, y: Position of the stone.
+        - direction: The direction to check (e.g., (1, 0) for horizontal).
+        - player: The player whose stones we are counting.
+
+        Returns:
+        - consecutive_count: Number of consecutive stones in this direction.
+        - open_ends: Number of open ends (empty spaces around the sequence).
+        """
+        dx, dy = direction
+        consecutive_count = 1
+        open_ends = 0
+
+        # Check in the positive direction
+        nx, ny = x + dx, y + dy
+        while 0 <= nx < Defines.GRID_NUM and 0 <= ny < Defines.GRID_NUM:
+            if self.m_board[nx][ny] == player:
+                consecutive_count += 1
+            elif self.m_board[nx][ny] == Defines.NOSTONE:
+                open_ends += 1
+                break
+            else:
+                break
+            nx += dx
+            ny += dy
+
+        # Check in the negative direction
+        nx, ny = x - dx, y - dy
+        while 0 <= nx < Defines.GRID_NUM and 0 <= ny < Defines.GRID_NUM:
+            if self.m_board[nx][ny] == player:
+                consecutive_count += 1
+            elif self.m_board[nx][ny] == Defines.NOSTONE:
+                open_ends += 1
+                break
+            else:
+                break
+            nx -= dx
+            ny -= dy
+
+        return consecutive_count, open_ends
 
     def analyze_threats(self, x, y):
         """

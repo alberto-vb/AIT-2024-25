@@ -63,10 +63,10 @@ def is_win_by_premove(board, preMove):
         board_full = False  # Found an empty space, the board is not full
 
     if board_full:
-        print("Draw")
+        # print("Draw")
         return "Draw"  # The board is full, and it's a draw
 
-    print("False")
+    # print("False")
     return False
 
 
