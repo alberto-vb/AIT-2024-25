@@ -15,6 +15,10 @@ def init_board(board):
             board[i][j] = Defines.NOSTONE
 
 
+def make_one_move(board, move, color):
+    board[move.positions[0].x][move.positions[0].y] = color
+
+
 def make_move(board, move, color):
     board[move.positions[0].x][move.positions[0].y] = color
     board[move.positions[1].x][move.positions[1].y] = color

@@ -12,9 +12,58 @@ from tools import (
     is_win_by_premove,
     move2msg,
     time,
-    unmake_move,
+    unmake_move, make_one_move,
 )
 from defines import Defines, StonePosition
+
+test_cases = {
+    "win_in_1_move": {
+        "board_setup": [
+            (10, 10, 1), (10, 11, 1), (10, 12, 1), (10, 13, 1), (10, 14, 1),
+            (9, 10, 2), (9, 11, 2), (9, 12, 2)
+        ],
+        "player_to_simulate": 1  # Engine should simulate a winning move
+    },
+    "win_in_2_moves": {
+        "board_setup": [
+            (10, 10, 1), (10, 11, 1), (10, 12, 1),
+            (12, 10, 1), (12, 11, 1),
+            (9, 10, 2), (11, 13, 2), (10, 13, 2)
+        ],
+        "player_to_simulate": 1  # Engine should simulate a winning move
+    },
+    "win_in_3_moves": {
+        "board_setup": [
+            (8, 8, 1), (9, 9, 1), (10, 10, 1), (11, 11, 1),
+            (12, 12, 2), (11, 10, 2), (10, 9, 2),
+            (9, 8, 1), (8, 9, 1)
+        ],
+        "player_to_simulate": 1  # Engine should simulate a winning move
+    },
+    "defense_in_1_move": {
+        "board_setup": [
+            (10, 10, 2), (10, 11, 2), (10, 12, 2), (10, 13, 2), (10, 14, 2),
+            (9, 10, 1), (9, 11, 1)
+        ],
+        "player_to_simulate": 1  # Engine should simulate a defensive move
+    },
+    "defense_in_2_moves": {
+        "board_setup": [
+            (10, 10, 2), (10, 11, 2), (10, 12, 2), (10, 14, 2),
+            (12, 10, 2), (12, 11, 2),
+            (9, 10, 1), (9, 11, 1)
+        ],
+        "player_to_simulate": 1  # Engine should simulate a defensive move
+    },
+    "defense_in_3_moves": {
+        "board_setup": [
+            (10, 10, 2), (10, 11, 2), (10, 13, 2), (10, 14, 2),
+            (12, 10, 2), (13, 11, 2), (11, 10, 2),
+            (9, 10, 1), (9, 11, 1)
+        ],
+        "player_to_simulate": 1  # Engine should simulate a defensive move
+    }
+}
 
 
 class GameEngine:
@@ -53,7 +102,20 @@ class GameEngine:
             " depth d     - set the alpha beta search depth, default is 6.\n"
             " vcf         - set vcf search.\n"
             " unvcf       - set none vcf search.\n"
-            " help        - print this help.\n")
+            " help        - print this help.\n"
+            " simulation   - run a simulation of the game.\n")
+
+    def on_help2(self):
+        print(
+            f"On help for Simulation\n"
+            " 1 - Win in 1 move\n"
+            " 2 - Win in 2 moves\n"
+            " 3 - Win in 3 moves\n"
+            " 4 - Defense in 1 move\n"
+            " 5 - Defense in 2 moves\n"
+            " 6 - Defense in 3 moves\n"
+            " help        - print this help.\n"
+        )
 
     def run(self):
         msg = ""
@@ -62,7 +124,7 @@ class GameEngine:
             msg = input().strip()
             log_to_file(msg)
             if msg == "name":
-                print(f"avb")
+                print(f"name avb")
 
             elif msg == "exit" or msg == "quit":
                 break
@@ -94,6 +156,9 @@ class GameEngine:
                     self.num_of_total_stones += 1
                     self.stones_placed.append((stone.x, stone.y, self.m_chess_type))
             elif msg == "next":
+                if is_win_by_premove(self.m_board, self.m_best_move):
+                    print("We lost!")
+
                 # Change the color of the stone of the next move using XOR
                 self.m_chess_type = self.m_chess_type ^ 3
                 # Start the timer
@@ -115,6 +180,8 @@ class GameEngine:
                 print(f"Decision Time: {decision_time:.4f} seconds")
                 print(f"Explored nodes: {self.expanded_nodes}, Pruned nodes: {self.pruned_nodes}")
 
+                if is_win_by_premove(self.m_board, self.m_best_move):
+                    print("We won!")
                 self.m_best_move = move
                 make_move(self.m_board, move, self.m_chess_type)
                 for stone in self.m_best_move.positions:
@@ -157,6 +224,32 @@ class GameEngine:
                 print(f"Set the search depth to {self.m_alphabeta_depth}.\n")
             elif msg == "help":
                 self.on_help()
+            elif msg == "simulation":
+                msg2 = ""
+                self.on_help2()
+                while True:
+                    msg = input().strip()
+                    log_to_file(msg)
+
+                self.init_game()
+                board_simulation = [
+                    (10, 10, 1), (10, 11, 1), (10, 12, 1), (10, 13, 1), (10, 14, 1),
+                    (9, 10, 2), (9, 11, 2), (9, 12, 2)
+                ]
+                player_to_simulate = 1  # Engine should simulate a winning move
+                for move in board_simulation:
+                    x, y, color = move
+
+                    self.num_of_total_stones += 1
+                    self.stones_placed.append((x, y, player_to_simulate))
+
+                    stone_position = StonePosition(x, y)
+                    move = StoneMove(positions=[stone_position])
+                    make_one_move(self.m_board, move, color)
+                if player_to_simulate == Defines.BLACK:
+                    self.m_chess_type = Defines.WHITE  # The player is changed because the "next" algorithm will use XOR to change the color
+                else:
+                    self.m_chess_type = Defines.BLACK  # The player is changed because the "next" algorithm will use XOR to change the color
         return 0
 
     def search_a_move(self, ourColor, bestMove):
@@ -263,8 +356,10 @@ class GameEngine:
                 aux = self.m_best_move
                 self.m_best_move = move
                 make_move(self.m_board, move, Defines.BLACK)
+                self.num_of_total_stones += 1
                 eval, _ = self.alpha_beta(depth - 1, alpha, beta, False)
                 unmake_move(self.m_board, move)
+                self.num_of_total_stones -= 1
                 self.m_best_move = aux
 
                 if eval > max_eval:
@@ -295,8 +390,10 @@ class GameEngine:
                 aux = self.m_best_move
                 self.m_best_move = move
                 make_move(self.m_board, move, Defines.WHITE)
+                self.num_of_total_stones += 1
                 eval, _ = self.alpha_beta(depth - 1, alpha, beta, True)
                 unmake_move(self.m_board, move)
+                self.num_of_total_stones -= 1
                 self.m_best_move = aux
 
                 if eval < min_eval:
@@ -328,7 +425,7 @@ class GameEngine:
 
         # Collect all potential single moves in a set to avoid duplicates
         potential_moves = set()
-        for radius in range(1, max_radius + 1):  # Increment the radius from 1 to max_radius
+        for radius in range(1, max_radius + 1):
             for last_x, last_y in last_positions:
                 for dx in range(-radius, radius + 1):
                     for dy in range(-radius, radius + 1):
@@ -340,11 +437,14 @@ class GameEngine:
                         y = last_y + dy
 
                         # Check if the position is within bounds and is an empty space
-                        if 0 <= x < Defines.GRID_NUM and 0 <= y < Defines.GRID_NUM and self.m_board[x][
-                            y] == Defines.NOSTONE:
-                            potential_moves.add((x, y))  # Add the empty position to the set
+                        if (
+                                0 <= x < Defines.GRID_NUM and
+                                0 <= y < Defines.GRID_NUM and
+                                self.m_board[x][y] == Defines.NOSTONE
+                        ):
+                            potential_moves.add((x, y))
 
-                        if len(potential_moves) >= limit * 2:  # Collect enough positions for move pairs
+                        if len(potential_moves) >= limit * 2:
                             break
 
         # Generate all combinations of two moves from the potential moves
@@ -413,15 +513,12 @@ class GameEngine:
         """
         scored_moves = []
 
-        # Start with the last placed stones as focal points
-        last_moves = self.m_best_move.positions[-2:]  # The two most recent stones placed
+        last_moves = self.m_best_move.positions[-2:]
         critical_stones = [(move.x, move.y) for move in last_moves]
 
-        # Add any other "living stones" that could potentially form a winning line
-        # (This assumes we have a list of living stones or stones that can form lines)
         for stone in self.stones_placed:
             x, y, player = stone
-            if self.is_living_stone(x, y, player):  # Method to check if a stone is "alive"
+            if self.is_living_stone(x, y, player):  # Check potential to form a line of 6
                 critical_stones.append((x, y))
 
         # Analyze moves around each critical stone
@@ -429,15 +526,17 @@ class GameEngine:
             for dx in range(-max_radius, max_radius + 1):
                 for dy in range(-max_radius, max_radius + 1):
                     if dx == 0 and dy == 0:
-                        continue  # Skip the stone's own position
+                        continue  # Skip stone's own position
 
                     x, y = cx + dx, cy + dy
-                    if 0 <= x < Defines.GRID_NUM and 0 <= y < Defines.GRID_NUM and self.m_board[x][
-                        y] == Defines.NOSTONE:
-                        score = self.analyze_threats(x, y)  # Evaluate the impact of placing a stone here
+                    if (
+                            0 <= x < Defines.GRID_NUM and
+                            0 <= y < Defines.GRID_NUM and
+                            self.m_board[x][y] == Defines.NOSTONE
+                    ):
+                        score = self.analyze_threats(x, y)
                         scored_moves.append((score, StonePosition(x, y)))
 
-        # Sort moves by their scores (highest scores first for offensive and defensive threats)
         scored_moves.sort(reverse=True, key=lambda item: item[0])
 
         # Generate pairs of moves from the top-ranked positions
@@ -449,9 +548,9 @@ class GameEngine:
                 if (pos1.x, pos1.y) != (pos2.x, pos2.y):  # Ensure different positions
                     combined_moves.append(StoneMove(positions=[pos1, pos2]))
                     if len(combined_moves) >= limit:
-                        return combined_moves  # Return early if the limit is reached
+                        return combined_moves
 
-        return combined_moves[:limit]  # Return the best move pairs up to the limit
+        return combined_moves[:limit]
 
     def is_living_stone(self, x, y, player):
         """
@@ -686,25 +785,35 @@ class GameEngine:
         """
         Check if the board is full (no more empty spaces).
         """
-        for row in self.m_board:
-            if Defines.NOSTONE in row:
-                return False
-        return True
+        if self.num_of_total_stones == Defines.GRID_COUNT:
+            return True
+        return False
+
 
     def evaluate_board(self):
         """
         Evaluates the board state, considering both offensive and defensive factors.
         """
-        score = 0
 
-        for x in range(Defines.GRID_NUM):
-            for y in range(Defines.GRID_NUM):
-                if self.m_board[x][y] == 1:  # Player 1's stone
-                    score += self.evaluate_position(x, y, 1)
-                elif self.m_board[x][y] == 2:  # Player 2's stone
-                    score -= self.evaluate_position(x, y, 2)
+        if is_win_by_premove(self.m_board, self.m_best_move):
+            # Check who won based on the current move
+            if self.m_chess_type == 1:  # Assuming player 1 is represented by 1
+                return float('inf')  # MAX value for player 1 victory
+            else:
+                return float('-inf')  # MIN value for player 2 victory
+        elif self.is_board_full():
+            return 0  # Draw
+        else:
+            score = 0
 
-        return score
+            for x in range(Defines.GRID_NUM):
+                for y in range(Defines.GRID_NUM):
+                    if self.m_board[x][y] == 1:  # Player 1's stone
+                        score += self.evaluate_position(x, y, 1)
+                    elif self.m_board[x][y] == 2:  # Player 2's stone
+                        score -= self.evaluate_position(x, y, 2)
+
+            return score
 
     def evaluate_position(self, x, y, player):
         """
@@ -767,7 +876,7 @@ class GameEngine:
 
         # Scoring based on offensive opportunities and defensive needs
         if count >= 5 and open_ends > 0:
-            return 1000  # Winning opportunity for offense
+            return 100000  # Winning opportunity for offense
         elif count == 4 and open_ends > 0:
             if player == 1:  # Offensive score
                 return 100  # Strong offensive move
